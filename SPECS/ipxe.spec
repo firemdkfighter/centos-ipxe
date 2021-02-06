@@ -49,7 +49,7 @@
 
 Name:    ipxe
 Version: %{date}
-Release: 6.git%{hash}%{?dist}
+Release: 7.git%{hash}%{?dist}
 Summary: A network boot loader
 
 Group:   System Environment/Base
@@ -66,6 +66,7 @@ Patch0002: 0002-Use-spec-compliant-timeouts.patch
 Patch0003: 0003-Strip-802.1Q-VLAN-0-priority-tags.patch
 Patch0004: ipxe-vlan-cmds.patch
 Patch0005: 0001-efi-perform-cable-detection-at-NII-initialization-on-HPE-557SFP.patch
+Patch0006: ipxe-ping-cmd.patch
 
 %ifarch %{buildarches}
 BuildRequires: perl-interpreter
@@ -260,6 +261,9 @@ done
 %endif
 
 %changelog
+* Tue Jan 26 2021 Jarod Wilson <jarod@redhat.com> - 20181210-7.git133f4c47
+- Build ping command (bz 1913719)
+
 * Mon Jul 27 2020 Neil Horman <nhorman@redhat.com> - 20181210-6.git133f4c47
 - Add quirk for link detect on HP 557SFP cards (bz 1740827)
 
