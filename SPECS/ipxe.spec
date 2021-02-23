@@ -49,7 +49,7 @@
 
 Name:    ipxe
 Version: %{date}
-Release: 7.git%{hash}%{?dist}
+Release: 8.git%{hash}%{?dist}
 Summary: A network boot loader
 
 Group:   System Environment/Base
@@ -184,9 +184,12 @@ for rom in %{qemuroms}; do
   vid="0x${rom%%????}"
   did="0x${rom#????}"
   EfiRom -f "$vid" -i "$did" --pci23 \
-         -b  bin/${rom}.rom \
          -ec bin-x86_64-efi/${rom}.efidrv \
-         -o  bin-combined/${rom}.rom
+         -o  bin-combined/${rom}.eficrom
+  util/catrom.pl \
+      bin/${rom}.rom \
+      bin-combined/${rom}.eficrom \
+      > bin-combined/${rom}.rom
   EfiRom -d  bin-combined/${rom}.rom
   # truncate to at least 256KiB
   truncate -s \>256K bin-combined/${rom}.rom
@@ -261,6 +264,9 @@ done
 %endif
 
 %changelog
+* Fri Feb 19 2021 Jarod Wilson <jarod@redhat.com> - 20181210-8.git133f4c47
+- combine BIOS and EFI roms using utils/catrom.pl [lersek] (bz 1926561)
+
 * Tue Jan 26 2021 Jarod Wilson <jarod@redhat.com> - 20181210-7.git133f4c47
 - Build ping command (bz 1913719)
 
