@@ -1,7 +1,3 @@
-%if 0%{?fedora}
-%global cross 1
-%endif
-
 # Resulting binary formats we want from iPXE
 %global formats rom
 
@@ -17,17 +13,10 @@
 #    vmxnet3: 0x15ad 0x07b0
 %global qemuroms 10222000 10ec8029 8086100e 10ec8139 1af41000 80861209 808610d3 15ad07b0
 
-# We only build the ROMs if on an x86 build host. The resulting
+# We only build the ROMs if on an EFI build host. The resulting
 # binary RPM will be noarch, so other archs will still be able
 # to use the binary ROMs.
-#
-# We do cross-compilation for 32->64-bit, but not for other arches
-# because EDK II does not support big-endian hosts.
-%if 0%{?cross}
-%global buildarches %{ix86} x86_64
-%else
-%global buildarches x86_64
-%endif
+%global buildarches x86_64 aarch64
 
 # debugging firmwares does not go the same way as a normal program.
 # moreover, all architectures providing debuginfo for a single noarch
@@ -49,7 +38,7 @@
 
 Name:    ipxe
 Version: %{date}
-Release: 8.git%{hash}%{?dist}
+Release: 9.git%{hash}%{?dist}
 Summary: A network boot loader
 
 Group:   System Environment/Base
@@ -67,32 +56,35 @@ Patch0003: 0003-Strip-802.1Q-VLAN-0-priority-tags.patch
 Patch0004: ipxe-vlan-cmds.patch
 Patch0005: 0001-efi-perform-cable-detection-at-NII-initialization-on-HPE-557SFP.patch
 Patch0006: ipxe-ping-cmd.patch
+Patch0007: 0001-arm-Provide-dummy-implementation-for-in-out-s-b-w-l.patch
 
 %ifarch %{buildarches}
 BuildRequires: perl-interpreter
 BuildRequires: perl-Getopt-Long
-BuildRequires: syslinux
 BuildRequires: mtools
 BuildRequires: mkisofs
 BuildRequires: edk2-tools
 BuildRequires: xz-devel
-
 BuildRequires: binutils-devel
-%if 0%{?cross}
-BuildRequires: binutils-x86_64-linux-gnu gcc-x86_64-linux-gnu
+%endif
+%ifarch x86_64
+BuildRequires: syslinux
 %endif
 
 Obsoletes: gpxe <= 1.0.1
 
+%ifarch x86_64
 %package rhcert
 Summary: Redhat hwcert custom ipxe image
 Group: Development/Tools
 BuildArch: noarch
 
-%package bootimgs
-Summary: Network boot loader images in bootable USB, CD, floppy and GRUB formats
+%package bootimgs-x86
+Summary: X86 Network boot loader images in bootable USB, CD, floppy and GRUB formats
 Group:   Development/Tools
 BuildArch: noarch
+Provides: %{name}-bootimgs = %{version}-%{release}
+Obsoletes: %{name}-bootimgs < 20181214-9.git133f4c47
 Obsoletes: gpxe-bootimgs <= 1.0.1
 
 %package roms
@@ -111,7 +103,7 @@ Obsoletes: gpxe-roms-qemu <= 1.0.1
 %description rhcert
 Custom ipxe image for use in hardware certification and validation
 
-%description bootimgs
+%description bootimgs-x86
 iPXE is an open source network bootloader. It provides a direct
 replacement for proprietary PXE ROMs, with many extra features such as
 DNS, HTTP, iSCSI, etc.
@@ -126,7 +118,6 @@ DNS, HTTP, iSCSI, etc.
 
 This package contains the iPXE roms in .rom format.
 
-
 %description roms-qemu
 iPXE is an open source network bootloader. It provides a direct
 replacement for proprietary PXE ROMs, with many extra features such as
@@ -134,6 +125,20 @@ DNS, HTTP, iSCSI, etc.
 
 This package contains the iPXE ROMs for devices emulated by QEMU, in
 .rom format.
+%endif
+
+%ifarch aarch64
+%package bootimgs-aarch64
+Summary: AArch64 Network boot loader images in bootable USB and GRUB formats
+Group:   Development/Tools
+BuildArch: noarch
+
+%description bootimgs-aarch64
+iPXE is an open source network bootloader. It provides a direct
+replacement for proprietary PXE ROMs, with many extra features such as
+DNS, HTTP, iSCSI, etc.
+
+This package contains the iPXE ARM64 boot images in USB and GRUB formats.
 %endif
 
 %description
@@ -144,28 +149,28 @@ DNS, HTTP, iSCSI, etc.
 %prep
 %setup -q -n %{name}-%{version}-git%{hash}
 %autopatch -p1
-
-
-%build
-%ifarch %{buildarches}
-cd src
-
+pushd src
 # ath9k drivers are too big for an Option ROM, and ipxe devs say it doesn't
 # make sense anyways
 # http://lists.ipxe.org/pipermail/ipxe-devel/2012-March/001290.html
 rm -rf drivers/net/ath/ath9k
 
+cp %{SOURCE1} .
+popd
+
+
+%build
+cd src
+
 make_ipxe() {
     make %{?_smp_mflags} \
         NO_WERROR=1 V=1 \
         GITVERSION=%{hash} \
-%if 0%{?cross}
-        CROSS_COMPILE=x86_64-linux-gnu- \
-%endif
         "$@"
 }
 
-cp %{SOURCE1} .
+%ifarch x86_64
+
 make_ipxe bin-x86_64-efi/ipxe.efi EMBED=script.ipxe
 mv bin-x86_64-efi/ipxe.efi bin-x86_64-efi/ipxe-rhcert.efi
 
@@ -199,8 +204,15 @@ done
 
 %endif
 
+%ifarch aarch64
+make_ipxe bin-arm64-efi/snponly.efi
+%if 0%{?fedora}
+make_ipxe bin-arm64-efi/ipxe.efi
+%endif
+%endif
+
 %install
-%ifarch %{buildarches}
+%ifarch x86_64
 mkdir -p %{buildroot}/%{_datadir}/%{name}/
 mkdir -p %{buildroot}/%{_datadir}/%{name}.efi/
 pushd src/bin/
@@ -236,8 +248,16 @@ for rom in %{qemuroms}; do
 done
 %endif
 
-%ifarch %{buildarches}
-%files bootimgs
+%ifarch aarch64
+mkdir -p %{buildroot}/%{_datadir}/%{name}/arm64-efi
+cp -a src/bin-arm64-efi/snponly.efi %{buildroot}/%{_datadir}/%{name}/arm64-efi/snponly.efi
+%if 0%{?fedora}
+cp -a src/bin-arm64-efi/ipxe.efi %{buildroot}/%{_datadir}/%{name}/arm64-efi/ipxe.efi
+%endif
+%endif
+
+%ifarch x86_64
+%files bootimgs-x86
 %dir %{_datadir}/%{name}
 %{_datadir}/%{name}/ipxe.iso
 %{_datadir}/%{name}/ipxe.usb
@@ -263,7 +283,20 @@ done
 %{_datadir}/%{name}/ipxe-x86_64-rhcert.efi
 %endif
 
+%ifarch aarch64
+%files bootimgs-aarch64
+%dir %{_datadir}/%{name}
+%dir %{_datadir}/%{name}/arm64-efi
+%if 0%{?fedora}
+%{_datadir}/%{name}/arm64-efi/ipxe.efi
+%endif
+%{_datadir}/%{name}/arm64-efi/snponly.efi
+%endif
+
 %changelog
+* Tue Mar 01 2022 Yaakov Selkowitz <yselkowi@redhat.com> - 20181214-9.git133f4c47
+- Add ARM 64 EFI artifacts (bz 2059350)
+
 * Fri Feb 19 2021 Jarod Wilson <jarod@redhat.com> - 20181210-8.git133f4c47
 - combine BIOS and EFI roms using utils/catrom.pl [lersek] (bz 1926561)
 
