@@ -28,6 +28,7 @@ BuildRequires: mtools
 BuildRequires: mkisofs
 BuildRequires: xz-devel
 BuildRequires: binutils-devel
+BuildRequires: gcc
 %endif
 %ifarch x86_64
 BuildRequires: syslinux
