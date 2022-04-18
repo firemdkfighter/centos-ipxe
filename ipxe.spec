@@ -1,21 +1,3 @@
-# Resulting binary formats we want from iPXE
-%global formats rom
-
-# PCI IDs (vendor,product) of the ROMS we want for QEMU
-#
-#    pcnet32: 0x1022 0x2000
-#   ne2k_pci: 0x10ec 0x8029
-#      e1000: 0x8086 0x100e
-#    rtl8139: 0x10ec 0x8139
-# virtio-net: 0x1af4 0x1000
-#   eepro100: 0x8086 0x1209
-#     e1000e: 0x8086 0x10d3
-#    vmxnet3: 0x15ad 0x07b0
-%global qemuroms 10222000 10ec8029 8086100e 10ec8139 1af41000 80861209 808610d3 15ad07b0
-
-# We only build the ROMs if on an EFI build host. The resulting
-# binary RPM will be noarch, so other archs will still be able
-# to use the binary ROMs.
 %global buildarches x86_64 aarch64
 
 # debugging firmwares does not go the same way as a normal program.
@@ -23,47 +5,27 @@
 # package is currently clashing in koji, so don't bother.
 %global debug_package %{nil}
 
-# Upstream don't do "releases" :-( So we're going to use the date
-# as the version, and a GIT hash as the release. Generate new GIT
-# snapshots using the folowing commands:
-#
-# $ hash=`git log -1 --format='%h'`
-# $ date=`git log -1 --format='%cd' --date=short | tr -d -`
-# $ git archive --prefix ipxe-${date}-git${hash}/ ${hash} | xz -7e > ipxe-${date}-git${hash}.tar.xz
-#
-# And then change these two:
-
-%global hash 133f4c47
-%global date 20181214
-
 Name:    ipxe
-Version: %{date}
-Release: 9.git%{hash}%{?dist}
+Version: 1.21.1
+Release: 1%{?dist}
 Summary: A network boot loader
 
 Group:   System Environment/Base
 License: GPLv2 with additional permissions and BSD
 URL:     http://ipxe.org/
 
-Source0: %{name}-%{version}-git%{hash}.tar.xz
+Source0: https://github.com/%{name}/%{name}/archive/refs/tags/v%{version}.tar.gz
 Source1: script.ipxe
 
 # Enable IPv6 for qemu's config
 # Sent upstream: http://lists.ipxe.org/pipermail/ipxe-devel/2015-November/004494.html
-Patch0001: 0001-build-customize-configuration.patch
-Patch0002: 0002-Use-spec-compliant-timeouts.patch
-Patch0003: 0003-Strip-802.1Q-VLAN-0-priority-tags.patch
-Patch0004: ipxe-vlan-cmds.patch
-Patch0005: 0001-efi-perform-cable-detection-at-NII-initialization-on-HPE-557SFP.patch
-Patch0006: ipxe-ping-cmd.patch
-Patch0007: 0001-arm-Provide-dummy-implementation-for-in-out-s-b-w-l.patch
+Patch01: ipxe.patch
 
 %ifarch %{buildarches}
 BuildRequires: perl-interpreter
 BuildRequires: perl-Getopt-Long
 BuildRequires: mtools
 BuildRequires: mkisofs
-BuildRequires: edk2-tools
 BuildRequires: xz-devel
 BuildRequires: binutils-devel
 %endif
@@ -87,19 +49,6 @@ Provides: %{name}-bootimgs = %{version}-%{release}
 Obsoletes: %{name}-bootimgs < 20181214-9.git133f4c47
 Obsoletes: gpxe-bootimgs <= 1.0.1
 
-%package roms
-Summary: Network boot loader roms in .rom format
-Group:  Development/Tools
-Requires: %{name}-roms-qemu = %{version}-%{release}
-BuildArch: noarch
-Obsoletes: gpxe-roms <= 1.0.1
-
-%package roms-qemu
-Summary: Network boot loader roms supported by QEMU, .rom format
-Group:  Development/Tools
-BuildArch: noarch
-Obsoletes: gpxe-roms-qemu <= 1.0.1
-
 %description rhcert
 Custom ipxe image for use in hardware certification and validation
 
@@ -110,21 +59,6 @@ DNS, HTTP, iSCSI, etc.
 
 This package contains the iPXE boot images in USB, CD, floppy, and PXE
 UNDI formats.
-
-%description roms
-iPXE is an open source network bootloader. It provides a direct
-replacement for proprietary PXE ROMs, with many extra features such as
-DNS, HTTP, iSCSI, etc.
-
-This package contains the iPXE roms in .rom format.
-
-%description roms-qemu
-iPXE is an open source network bootloader. It provides a direct
-replacement for proprietary PXE ROMs, with many extra features such as
-DNS, HTTP, iSCSI, etc.
-
-This package contains the iPXE ROMs for devices emulated by QEMU, in
-.rom format.
 %endif
 
 %ifarch aarch64
@@ -147,7 +81,7 @@ replacement for proprietary PXE ROMs, with many extra features such as
 DNS, HTTP, iSCSI, etc.
 
 %prep
-%setup -q -n %{name}-%{version}-git%{hash}
+%setup -q
 %autopatch -p1
 pushd src
 # ath9k drivers are too big for an Option ROM, and ipxe devs say it doesn't
@@ -165,7 +99,6 @@ cd src
 make_ipxe() {
     make %{?_smp_mflags} \
         NO_WERROR=1 V=1 \
-        GITVERSION=%{hash} \
         "$@"
 }
 
@@ -178,29 +111,7 @@ make_ipxe bin-i386-efi/ipxe.efi bin-x86_64-efi/ipxe.efi \
     bin-x86_64-efi/snponly.efi
 
 make_ipxe ISOLINUX_BIN=/usr/share/syslinux/isolinux.bin \
-    bin/undionly.kpxe bin/ipxe.{dsk,iso,usb,lkrn} \
-    allroms
-
-# build roms with efi support for qemu
-mkdir bin-combined
-for rom in %{qemuroms}; do
-  make_ipxe CONFIG=qemu bin/${rom}.rom
-  make_ipxe CONFIG=qemu bin-x86_64-efi/${rom}.efidrv
-  vid="0x${rom%%????}"
-  did="0x${rom#????}"
-  EfiRom -f "$vid" -i "$did" --pci23 \
-         -ec bin-x86_64-efi/${rom}.efidrv \
-         -o  bin-combined/${rom}.eficrom
-  util/catrom.pl \
-      bin/${rom}.rom \
-      bin-combined/${rom}.eficrom \
-      > bin-combined/${rom}.rom
-  EfiRom -d  bin-combined/${rom}.rom
-  # truncate to at least 256KiB
-  truncate -s \>256K bin-combined/${rom}.rom
-  # verify rom fits in 256KiB
-  test $(stat -c '%s' bin-combined/${rom}.rom) -le $((256 * 1024))
-done
+    bin/undionly.kpxe bin/ipxe.{dsk,iso,usb,lkrn}
 
 %endif
 
@@ -218,34 +129,12 @@ mkdir -p %{buildroot}/%{_datadir}/%{name}.efi/
 pushd src/bin/
 
 cp -a undionly.kpxe ipxe.{iso,usb,dsk,lkrn} %{buildroot}/%{_datadir}/%{name}/
-
-for fmt in %{formats};do
- for img in *.${fmt};do
-      if [ -e $img ]; then
-   cp -a $img %{buildroot}/%{_datadir}/%{name}/
-   echo %{_datadir}/%{name}/$img >> ../../${fmt}.list
-  fi
- done
-done
 popd
 
 cp -a src/bin-i386-efi/ipxe.efi %{buildroot}/%{_datadir}/%{name}/ipxe-i386.efi
 cp -a src/bin-x86_64-efi/ipxe.efi %{buildroot}/%{_datadir}/%{name}/ipxe-x86_64.efi
 cp -a src/bin-x86_64-efi/ipxe-rhcert.efi %{buildroot}/%{_datadir}/%{name}/ipxe-x86_64-rhcert.efi
 cp -a src/bin-x86_64-efi/snponly.efi %{buildroot}/%{_datadir}/%{name}/ipxe-snponly-x86_64.efi
-
-# the roms supported by qemu will be packaged separatedly
-# remove from the main rom list and add them to qemu.list
-for fmt in rom ;do
- for rom in %{qemuroms} ; do
-  sed -i -e "/\/${rom}.${fmt}/d" ${fmt}.list
-  echo %{_datadir}/%{name}/${rom}.${fmt} >> qemu.${fmt}.list
- done
-done
-for rom in %{qemuroms}; do
-  cp src/bin-combined/${rom}.rom %{buildroot}/%{_datadir}/%{name}.efi/
-  echo %{_datadir}/%{name}.efi/${rom}.rom >> qemu.rom.list
-done
 %endif
 
 %ifarch aarch64
@@ -267,15 +156,6 @@ cp -a src/bin-arm64-efi/ipxe.efi %{buildroot}/%{_datadir}/%{name}/arm64-efi/ipxe
 %{_datadir}/%{name}/ipxe-x86_64.efi
 %{_datadir}/%{name}/undionly.kpxe
 %{_datadir}/%{name}/ipxe-snponly-x86_64.efi
-%doc COPYING COPYING.GPLv2 COPYING.UBDL
-
-%files roms -f rom.list
-%dir %{_datadir}/%{name}
-%doc COPYING COPYING.GPLv2 COPYING.UBDL
-
-%files roms-qemu -f qemu.rom.list
-%dir %{_datadir}/%{name}
-%dir %{_datadir}/%{name}.efi
 %doc COPYING COPYING.GPLv2 COPYING.UBDL
 
 %files rhcert
